@@ -32,9 +32,13 @@ function FileIcon({ filename }: { filename: string }) {
 function TreeNode({ node, level = 0 }: FileTreeProps) {
   const { selectedFileId, setSelectedFileId, toggleNodeSelection, toggleNodeExpand } = useFileStore();
   
+  // Defensive: ensure node has required properties
+  if (!node || !node.id) return null;
+  
   const isSelected = selectedFileId === node.id;
   const isDirectory = node.type === 'directory';
-  const hasChildren = isDirectory && node.children && node.children.length > 0;
+  const children = node.children || [];
+  const hasChildren = isDirectory && children.length > 0;
   
   const handleClick = useCallback(() => {
     if (isDirectory) {
@@ -52,6 +56,28 @@ function TreeNode({ node, level = 0 }: FileTreeProps) {
   }, [node.id, toggleNodeSelection]);
   
   const indent = level * 16;
+  
+  // Skip rendering the root node itself, only render its children
+  if (node.name === 'root') {
+    if (!hasChildren) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full px-6 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
+            <FolderOpen className="w-8 h-8 text-slate-700" />
+          </div>
+          <h3 className="text-sm font-medium text-slate-500 mb-1">Empty folder</h3>
+          <p className="text-xs text-slate-600">No files found in the imported folder</p>
+        </div>
+      );
+    }
+    return (
+      <>
+        {children.map((child) => (
+          <TreeNode key={child.id} node={child} level={0} />
+        ))}
+      </>
+    );
+  }
   
   return (
     <div>
@@ -119,7 +145,7 @@ function TreeNode({ node, level = 0 }: FileTreeProps) {
         {/* File count badge for directories */}
         {isDirectory && hasChildren && (
           <span className="text-[10px] text-slate-600 bg-slate-800/80 px-1.5 py-0.5 rounded-full flex-shrink-0">
-            {node.children?.length}
+            {children.length}
           </span>
         )}
         
@@ -132,9 +158,9 @@ function TreeNode({ node, level = 0 }: FileTreeProps) {
       </div>
       
       {/* Children */}
-      {isDirectory && node.isExpanded && node.children && (
+      {isDirectory && node.isExpanded && hasChildren && (
         <div className="mt-0.5">
-          {node.children.map((child) => (
+          {children.map((child) => (
             <TreeNode key={child.id} node={child} level={level + 1} />
           ))}
         </div>
@@ -194,11 +220,13 @@ export function FileTree({ node }: { node: FileNode }) {
 
 // Helper functions
 function countFiles(node: FileNode): number {
+  if (!node) return 0;
   if (node.type === 'file') return 1;
-  return node.children?.reduce((acc, child) => acc + countFiles(child), 0) || 0;
+  return (node.children || []).reduce((acc, child) => acc + countFiles(child), 0);
 }
 
 function countSelectedFiles(node: FileNode): number {
+  if (!node) return 0;
   if (node.type === 'file') return node.isSelected ? 1 : 0;
-  return node.children?.reduce((acc, child) => acc + countSelectedFiles(child), 0) || 0;
+  return (node.children || []).reduce((acc, child) => acc + countSelectedFiles(child), 0);
 }

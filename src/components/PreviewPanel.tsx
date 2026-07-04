@@ -1,8 +1,11 @@
 import { useMemo } from 'react';
-import { FileCode, FileText, Eye } from 'lucide-react';
+import { FileCode, FileText, Eye, AlertTriangle } from 'lucide-react';
 import { useFileStore } from '@/hooks/useFileStore';
-import { highlightCode, generateHighlightStyles } from '@/utils/syntaxHighlight';
+import { highlightCode, escapeHtml, generateHighlightStyles } from '@/utils/syntaxHighlight';
 import { getAllFiles, getFileTypeInfo } from '@/utils/fileSystem';
+
+// Maximum lines to render in preview (prevents browser hang)
+const MAX_PREVIEW_LINES = 2000;
 
 export function PreviewPanel() {
   const { rootNode, selectedFileId } = useFileStore();
@@ -10,8 +13,12 @@ export function PreviewPanel() {
   // Find selected file
   const selectedFile = useMemo(() => {
     if (!rootNode || !selectedFileId) return null;
-    const allFiles = getAllFiles(rootNode);
-    return allFiles.find(f => f.id === selectedFileId) || allFiles[0] || null;
+    try {
+      const allFiles = getAllFiles(rootNode);
+      return allFiles.find(f => f.id === selectedFileId) || allFiles[0] || null;
+    } catch {
+      return null;
+    }
   }, [rootNode, selectedFileId]);
   
   // Get file type info
@@ -23,10 +30,21 @@ export function PreviewPanel() {
   // Highlighted code
   const highlightedCode = useMemo(() => {
     if (!selectedFile) return '';
-    return highlightCode(
-      selectedFile.content || '',
-      selectedFile.language || 'text'
-    );
+    try {
+      return highlightCode(
+        selectedFile.content || '',
+        selectedFile.language || 'text'
+      );
+    } catch {
+      return escapeHtml(selectedFile.content || '');
+    }
+  }, [selectedFile]);
+  
+  // Check if file is truncated
+  const isTruncated = useMemo(() => {
+    if (!selectedFile?.content) return false;
+    const lines = selectedFile.content.split('\n');
+    return lines.length > MAX_PREVIEW_LINES;
   }, [selectedFile]);
   
   // Breadcrumb path
@@ -46,8 +64,13 @@ export function PreviewPanel() {
     );
   }
   
-  const allFiles = getAllFiles(rootNode);
-  const fileCount = allFiles.length;
+  let fileCount = 0;
+  try {
+    const allFiles = getAllFiles(rootNode);
+    fileCount = allFiles.length;
+  } catch {
+    fileCount = 0;
+  }
   
   return (
     <div className="flex-1 flex flex-col bg-[#0a0e17] min-w-0">
@@ -78,13 +101,23 @@ export function PreviewPanel() {
             </div>
           </div>
           
+          {/* Truncation warning */}
+          {isTruncated && (
+            <div className="mx-6 mt-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="text-xs text-amber-400/80">
+                File is too large. Only showing first {MAX_PREVIEW_LINES} lines. Full content will still be exported.
+              </span>
+            </div>
+          )}
+          
           {/* Code preview */}
           <div className="p-6">
             <style>{generateHighlightStyles()}</style>
             <CodePreview 
-              code={selectedFile.content || ''}
               highlightedCode={highlightedCode}
               language={selectedFile.language || 'text'}
+              isTruncated={isTruncated}
             />
           </div>
         </div>
@@ -130,13 +163,15 @@ function Toolbar({ breadcrumb, fileCount }: ToolbarProps) {
 }
 
 interface CodePreviewProps {
-  code: string;
   highlightedCode: string;
   language: string;
+  isTruncated: boolean;
 }
 
-function CodePreview({ highlightedCode, language }: CodePreviewProps) {
-  const lines = highlightedCode.split('\n');
+function CodePreview({ highlightedCode, language, isTruncated }: CodePreviewProps) {
+  // Split into lines but cap at MAX_PREVIEW_LINES
+  const allLines = highlightedCode.split('\n');
+  const lines = isTruncated ? allLines.slice(0, MAX_PREVIEW_LINES) : allLines;
   
   return (
     <div className="rounded-xl overflow-hidden bg-[#0d1117] border border-white/5">
@@ -150,13 +185,14 @@ function CodePreview({ highlightedCode, language }: CodePreviewProps) {
           </div>
           <span className="text-[10px] text-slate-600 ml-2 font-mono">{language}</span>
         </div>
+        <span className="text-[10px] text-slate-600">{allLines.length} lines</span>
       </div>
       
       {/* Code content */}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <tbody>
-            {lines.map((_line, index) => (
+            {lines.map((line, index) => (
               <tr key={index} className="hover:bg-white/[0.02]">
                 <td className="text-right py-0 pr-4 pl-4 select-none w-12">
                   <span className="text-xs text-[#484f58] font-mono">{index + 1}</span>
@@ -166,7 +202,7 @@ function CodePreview({ highlightedCode, language }: CodePreviewProps) {
                     <code 
                       className="text-[13px] font-mono leading-6 text-[#c9d1d9]"
                       dangerouslySetInnerHTML={{ 
-                        __html: lines[index] || ' ' 
+                        __html: line || ' ' 
                       }}
                     />
                   </pre>

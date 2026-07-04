@@ -1,77 +1,64 @@
 import { useCallback, useState, useEffect } from 'react';
 import { Toaster, toast } from 'sonner';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Header } from '@/components/Header';
 import { SourcePanel } from '@/components/SourcePanel';
 import { PreviewPanel } from '@/components/PreviewPanel';
 import { OptionsPanel } from '@/components/OptionsPanel';
 import { ExportModal } from '@/components/ExportModal';
 import { useFileStore } from '@/hooks/useFileStore';
-import { 
-  generatePDF, 
-  generateMarkdown, 
-} from '@/utils/exportEngine';
+import { generatePDF, generateMarkdown } from '@/utils/exportEngine';
 import type { ExportProgress } from '@/types';
 import { saveAs } from 'file-saver';
 
-export default function App() {
-  const { 
-    rootNode, 
-    settings, 
-    isExporting, 
-    setIsExporting, 
-    setExportProgress 
-  } = useFileStore();
-  
+function AppContent() {
+  const { rootNode, settings, isExporting, setIsExporting, setExportProgress } = useFileStore();
+
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportComplete, setExportComplete] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [currentProgress, setCurrentProgress] = useState<ExportProgress | null>(null);
-  
-  // Handle import folder
-  const handleImportFolder = useCallback(() => {
-    // This is handled by the SourcePanel component
-  }, []);
-  
-  // Handle import files
-  const handleImportFiles = useCallback(() => {
-    // This is handled by the SourcePanel component
-  }, []);
-  
+
+  // Handle import folder (delegated to SourcePanel)
+  const handleImportFolder = useCallback(() => {}, []);
+
+  // Handle import files (delegated to SourcePanel)
+  const handleImportFiles = useCallback(() => {}, []);
+
   // Handle export
   const handleExport = useCallback(async () => {
     if (!rootNode) {
       toast.error('No files to export');
       return;
     }
-    
+
     setIsExporting(true);
     setExportModalOpen(true);
     setExportComplete(false);
     setExportError(null);
-    
+
     try {
       const onProgress = (progress: ExportProgress) => {
         setCurrentProgress(progress);
         setExportProgress(progress);
       };
-      
+
       let blob: Blob;
       let filename: string;
-      
+
       const timestamp = new Date().toISOString().split('T')[0];
       const title = settings.metadata.title || 'export';
-      
+
       switch (settings.format) {
         case 'pdf':
           try {
             blob = await generatePDF(rootNode, settings.pdf, settings.metadata, onProgress);
           } catch (pdfError) {
             console.warn('Advanced PDF failed, falling back to basic PDF:', pdfError);
-            // Fallback to basic PDF generation
             const { jsPDF } = await import('jspdf');
             const doc = new jsPDF();
             const allFiles = getAllFilesFlat(rootNode);
-            
+
             let y = 20;
             allFiles.forEach((file) => {
               if (y > 250) {
@@ -86,12 +73,12 @@ export default function App() {
               doc.text(lines, 20, y);
               y += lines.length * 5 + 15;
             });
-            
+
             blob = doc.output('blob');
           }
           filename = `${title}-${timestamp}.pdf`;
           break;
-          
+
         case 'markdown':
           onProgress({
             step: 1,
@@ -100,12 +87,12 @@ export default function App() {
             percentage: 30,
             isComplete: false,
           });
-          
+
           const markdownContent = generateMarkdown(rootNode, settings.markdown, settings.metadata);
           blob = new Blob([markdownContent], { type: 'text/markdown' });
           filename = `${title}-${timestamp}.md`;
           break;
-          
+
         case 'zip':
           onProgress({
             step: 1,
@@ -114,19 +101,19 @@ export default function App() {
             percentage: 20,
             isComplete: false,
           });
-          
+
           const JSZip = (await import('jszip')).default;
           const zip = new JSZip();
-          
+
           // Generate combined README
           const combinedMarkdown = generateMarkdown(rootNode, settings.markdown, settings.metadata);
           zip.file('README.md', combinedMarkdown);
-          
+
           // Generate individual files preserving structure
           const allFiles = getAllFilesFlat(rootNode);
-          allFiles.forEach(file => {
+          allFiles.forEach((file) => {
             const markdownPath = file.path.replace(/\.[^/.]+$/, '') + '.md';
-            
+
             let content = '';
             if (settings.markdown.includeFrontmatter) {
               content += '---\n';
@@ -135,34 +122,34 @@ export default function App() {
               content += `generated: "${new Date().toISOString()}"\n`;
               content += '---\n\n';
             }
-            
+
             if (settings.markdown.fileHeaders) {
               content += `# ${file.name}\n\n`;
               content += `**Source:** \`${file.path}\`\n\n`;
             }
-            
+
             const lang = settings.markdown.codeFenceLanguage ? (file.language || '') : '';
             content += `\`\`\`${lang}\n`;
             content += file.content || '';
             content += '\n\`\`\`\n';
-            
+
             zip.file(markdownPath, content);
           });
-          
+
           // Generate directory tree file
           if (settings.markdown.directoryTree) {
             const { generateTreeText } = await import('@/utils/fileSystem');
             zip.file('DIRECTORY_TREE.txt', generateTreeText(rootNode));
           }
-          
+
           blob = await zip.generateAsync({ type: 'blob' });
           filename = `${title}-${timestamp}.zip`;
           break;
-          
+
         default:
           throw new Error('Unknown export format');
       }
-      
+
       onProgress({
         step: 5,
         totalSteps: 5,
@@ -170,13 +157,11 @@ export default function App() {
         percentage: 100,
         isComplete: true,
       });
-      
-      // Download the file
+
       saveAs(blob, filename);
-      
+
       setExportComplete(true);
       toast.success(`${settings.format.toUpperCase()} exported successfully!`);
-      
     } catch (error) {
       console.error('Export error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -187,11 +172,10 @@ export default function App() {
       setExportProgress(null);
     }
   }, [rootNode, settings, setIsExporting, setExportProgress]);
-  
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + E = Export
       if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
         e.preventDefault();
         if (!isExporting && rootNode) {
@@ -199,16 +183,15 @@ export default function App() {
         }
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleExport, isExporting, rootNode]);
-  
+
   return (
     <div className="h-screen flex flex-col bg-[#0a0e17] text-slate-200 overflow-hidden">
-      {/* Toast notifications */}
-      <Toaster 
-        position="top-right" 
+      <Toaster
+        position="top-right"
         toastOptions={{
           style: {
             background: '#1e293b',
@@ -217,27 +200,19 @@ export default function App() {
           },
         }}
       />
-      
-      {/* Header */}
-      <Header 
+
+      <Header
         onImportFolder={handleImportFolder}
         onImportFiles={handleImportFiles}
         onExport={handleExport}
       />
-      
-      {/* Main content */}
+
       <div className="flex-1 flex overflow-hidden">
-        {/* Source Panel */}
         <SourcePanel />
-        
-        {/* Preview Panel */}
         <PreviewPanel />
-        
-        {/* Options Panel */}
         <OptionsPanel onExport={handleExport} />
       </div>
-      
-      {/* Export Modal */}
+
       <ExportModal
         isOpen={exportModalOpen}
         onClose={() => {
@@ -254,15 +229,23 @@ export default function App() {
 }
 
 // Helper function to flatten all files from tree
-function getAllFilesFlat(node: any): any[] {
+function getAllFilesFlat(node: { type: string; children?: any[] }): any[] {
   const files: any[] = [];
   if (node.type === 'file') {
     files.push(node);
   }
-  if (node.children) {
+  if (node.children && Array.isArray(node.children)) {
     for (const child of node.children) {
       files.push(...getAllFilesFlat(child));
     }
   }
   return files;
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
 }

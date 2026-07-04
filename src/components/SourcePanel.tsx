@@ -3,6 +3,7 @@ import { FileCode, FolderTree } from 'lucide-react';
 import { DropZone } from './DropZone';
 import { FileTree } from './FileTree';
 import { useFileStore } from '@/hooks/useFileStore';
+import type { FileNode } from '@/types';
 import { 
   processDroppedItems, 
   buildFileTree, 
@@ -22,17 +23,19 @@ export function SourcePanel() {
     setIsImporting(true);
     try {
       const fileNodes = await processDroppedItems(items);
-      if (fileNodes.length > 0) {
-        const newRoot = buildFileTree(fileNodes);
+      const validNodes = fileNodes.filter((n): n is FileNode => n !== null);
+      if (validNodes.length > 0) {
+        const newRoot = buildFileTree(validNodes);
         setRootNode(newRoot);
         
-        // Select first file
         const allFiles = getAllFiles(newRoot);
         if (allFiles.length > 0) {
           setSelectedFileId(allFiles[0].id);
         }
         
-        toast.success(`Imported ${fileNodes.length} file${fileNodes.length > 1 ? 's' : ''}`);
+        toast.success(`Imported ${validNodes.length} file${validNodes.length > 1 ? 's' : ''}`);
+      } else {
+        toast.warning('No valid files found (binary files are skipped)');
       }
     } catch (error) {
       console.error('Import error:', error);
@@ -50,7 +53,7 @@ export function SourcePanel() {
         const handle = await window.showDirectoryPicker();
         setIsImporting(true);
         
-        const fileNodes: any[] = [];
+        const fileNodes: FileNode[] = [];
         
         async function readDirectoryRecursive(dirHandle: any, path: string = '') {
           // @ts-ignore
@@ -60,10 +63,16 @@ export function SourcePanel() {
             if (entry.kind === 'directory') {
               await readDirectoryRecursive(entry, entryPath);
             } else {
-              const file = await entry.getFile();
-              const node = await createFileNode(file, path);
-              node.path = entryPath;
-              fileNodes.push(node);
+              try {
+                const file = await entry.getFile();
+                const node = await createFileNode(file, path);
+                if (node) {
+                  node.path = entryPath;
+                  fileNodes.push(node);
+                }
+              } catch (err) {
+                console.warn(`Skipping file ${entry.name}:`, err);
+              }
             }
           }
         }
@@ -80,12 +89,13 @@ export function SourcePanel() {
           }
           
           toast.success(`Imported ${fileNodes.length} file${fileNodes.length > 1 ? 's' : ''}`);
+        } else {
+          toast.warning('No valid files found in selected folder');
         }
         
         setIsImporting(false);
       } catch (error) {
         console.error('Directory picker error:', error);
-        // Fallback to input
         folderInputRef.current?.click();
         setIsImporting(false);
       }
@@ -106,9 +116,10 @@ export function SourcePanel() {
     
     setIsImporting(true);
     try {
-      const fileNodes = await Promise.all(
+      const results = await Promise.all(
         Array.from(files).map(file => createFileNode(file))
       );
+      const fileNodes = results.filter((n): n is FileNode => n !== null);
       
       if (fileNodes.length > 0) {
         const newRoot = buildFileTree(fileNodes);
@@ -126,7 +137,7 @@ export function SourcePanel() {
       toast.error('Failed to import files');
     } finally {
       setIsImporting(false);
-      e.target.value = ''; // Reset input
+      e.target.value = '';
     }
   }, [setRootNode, setSelectedFileId, setIsImporting]);
   
@@ -137,14 +148,14 @@ export function SourcePanel() {
     
     setIsImporting(true);
     try {
-      const fileNodes = await Promise.all(
+      const results = await Promise.all(
         Array.from(files).map(file => {
-          // Extract relative path from webkitRelativePath
           const relativePath = file.webkitRelativePath;
           const dirPath = relativePath.split('/').slice(0, -1).join('/');
           return createFileNode(file, dirPath);
         })
       );
+      const fileNodes = results.filter((n): n is FileNode => n !== null);
       
       if (fileNodes.length > 0) {
         const newRoot = buildFileTree(fileNodes);
@@ -162,7 +173,7 @@ export function SourcePanel() {
       toast.error('Failed to import folder');
     } finally {
       setIsImporting(false);
-      e.target.value = ''; // Reset input
+      e.target.value = '';
     }
   }, [setRootNode, setSelectedFileId, setIsImporting]);
   
@@ -174,9 +185,10 @@ export function SourcePanel() {
       if (files && files.length > 0) {
         setIsImporting(true);
         try {
-          const fileNodes = await Promise.all(
+          const results = await Promise.all(
             Array.from(files).map((file: any) => createFileNode(file))
           );
+          const fileNodes = results.filter((n): n is FileNode => n !== null);
           
           if (fileNodes.length > 0) {
             const newRoot = buildFileTree(fileNodes);
@@ -204,7 +216,6 @@ export function SourcePanel() {
   
   return (
     <div className="w-[300px] flex-shrink-0 bg-[#0d1117] border-r border-white/5 flex flex-col">
-      {/* Hidden inputs */}
       <input
         ref={fileInputRef}
         type="file"
@@ -220,7 +231,6 @@ export function SourcePanel() {
         onChange={handleFolderInputChange}
       />
       
-      {/* Drop zone */}
       <DropZone 
         onDrop={handleDrop}
         onImportFolder={handleImportFolder}
@@ -228,10 +238,8 @@ export function SourcePanel() {
         isImporting={isImporting}
       />
       
-      {/* Divider */}
       <div className="border-t border-white/5" />
       
-      {/* File tree or empty state */}
       <div className="flex-1 overflow-hidden">
         {rootNode ? (
           <FileTree node={rootNode} />

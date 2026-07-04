@@ -64,6 +64,23 @@ const defaultSettings: AppSettings = {
   },
 };
 
+// Ensure node has children array
+function ensureChildren(node: FileNode): FileNode {
+  return {
+    ...node,
+    children: node.children || [],
+  };
+}
+
+// Ensure entire tree has children arrays
+function ensureTreeChildren(node: FileNode): FileNode {
+  const ensured = ensureChildren(node);
+  if (ensured.children.length > 0) {
+    ensured.children = ensured.children.map(ensureTreeChildren);
+  }
+  return ensured;
+}
+
 export const useFileStore = create<FileStore>((set, get) => ({
   // Initial state
   rootNode: null,
@@ -75,7 +92,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
   showOptions: true,
   
   // Actions
-  setRootNode: (node) => set({ rootNode: node }),
+  setRootNode: (node) => set({ rootNode: node ? ensureTreeChildren(node) : null }),
   
   setSelectedFileId: (id) => set({ selectedFileId: id }),
   
@@ -85,7 +102,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
     
     const updateInTree = (node: FileNode): FileNode => {
       if (node.id === updatedNode.id) {
-        return updatedNode;
+        return ensureChildren(updatedNode);
       }
       if (node.children) {
         return {
@@ -104,24 +121,25 @@ export const useFileStore = create<FileStore>((set, get) => ({
     if (!rootNode) return;
     
     const toggleInTree = (node: FileNode): FileNode => {
-      if (node.id === nodeId) {
-        const newSelected = !node.isSelected;
+      const ensured = ensureChildren(node);
+      if (ensured.id === nodeId) {
+        const newSelected = !ensured.isSelected;
         return {
-          ...node,
+          ...ensured,
           isSelected: newSelected,
-          children: node.children?.map((child) => propagateSelection(child, newSelected)),
+          children: ensured.children.map((child) => propagateSelection(ensureChildren(child), newSelected)),
         };
       }
-      if (node.children) {
-        const newChildren = node.children.map(toggleInTree);
+      if (ensured.children.length > 0) {
+        const newChildren = ensured.children.map(toggleInTree);
         const allSelected = newChildren.every((c) => c.isSelected);
         return {
-          ...node,
+          ...ensured,
           children: newChildren,
           isSelected: allSelected,
         };
       }
-      return node;
+      return ensured;
     };
     
     set({ rootNode: toggleInTree(rootNode) });
@@ -132,16 +150,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
     if (!rootNode) return;
     
     const toggleInTree = (node: FileNode): FileNode => {
-      if (node.id === nodeId && node.type === 'directory') {
-        return { ...node, isExpanded: !node.isExpanded };
+      const ensured = ensureChildren(node);
+      if (ensured.id === nodeId && ensured.type === 'directory') {
+        return { ...ensured, isExpanded: !ensured.isExpanded };
       }
-      if (node.children) {
+      if (ensured.children.length > 0) {
         return {
-          ...node,
-          children: node.children.map(toggleInTree),
+          ...ensured,
+          children: ensured.children.map(toggleInTree),
         };
       }
-      return node;
+      return ensured;
     };
     
     set({ rootNode: toggleInTree(rootNode) });
@@ -151,11 +170,14 @@ export const useFileStore = create<FileStore>((set, get) => ({
     const { rootNode } = get();
     if (!rootNode) return;
     
-    const selectAllInTree = (node: FileNode): FileNode => ({
-      ...node,
-      isSelected: selected,
-      children: node.children?.map((child) => selectAllInTree(child)),
-    });
+    const selectAllInTree = (node: FileNode): FileNode => {
+      const ensured = ensureChildren(node);
+      return {
+        ...ensured,
+        isSelected: selected,
+        children: ensured.children.map((child) => selectAllInTree(ensureChildren(child))),
+      };
+    };
     
     set({ rootNode: selectAllInTree(rootNode) });
   },
@@ -169,7 +191,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       if (node.children) {
         const filtered = node.children
           .map(removeFromTree)
-          .filter((c): c is FileNode => c !== null);
+          .filter(Boolean) as FileNode[];
         return { ...node, children: filtered };
       }
       return node;
@@ -191,7 +213,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       if (node.children) {
         const filtered = node.children
           .map(removeSelected)
-          .filter((c): c is FileNode => c !== null);
+          .filter(Boolean) as FileNode[];
         // Remove empty directories
         if (filtered.length === 0 && node.type === 'directory') return null;
         return { ...node, children: filtered };
@@ -268,10 +290,11 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
 // Helper: Propagate selection to children
 function propagateSelection(node: FileNode, selected: boolean): FileNode {
+  const ensured = ensureChildren(node);
   return {
-    ...node,
+    ...ensured,
     isSelected: selected,
-    children: node.children?.map((child) => propagateSelection(child, selected)),
+    children: ensured.children.map((child) => propagateSelection(ensureChildren(child), selected)),
   };
 }
 

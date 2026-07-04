@@ -32,60 +32,70 @@ import 'prismjs/components/prism-perl';
 import 'prismjs/components/prism-scala';
 import 'prismjs/components/prism-vim';
 
+// Maximum content length to highlight (prevents browser hang on large files)
+const MAX_HIGHLIGHT_LENGTH = 500_000; // ~500KB
+
 /**
  * Highlight code using Prism.js
+ * Falls back to escaped plain text if Prism fails or content is too large
  */
 export function highlightCode(code: string, language: string): string {
-  const grammar = Prism.languages[language] || Prism.languages.plaintext;
-  return Prism.highlight(code, grammar, language);
-}
-
-/**
- * Get Prism grammar for a language
- */
-export function getLanguageGrammar(language: string): Prism.Grammar | undefined {
-  return Prism.languages[language];
-}
-
-/**
- * Escape HTML special characters
- */
-export function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-/**
- * Wrap highlighted code in HTML structure with line numbers
- */
-export function wrapWithLineNumbers(
-  highlightedCode: string,
-  options: { showLineNumbers: boolean; startLine?: number }
-): string {
-  if (!options.showLineNumbers) {
-    return `<pre class="code-block"><code>${highlightedCode}</code></pre>`;
+  // Handle empty content
+  if (!code || code.length === 0) {
+    return '';
   }
 
-  const lines = highlightedCode.split('\n');
-  const startLine = options.startLine || 1;
+  // For very large files, skip highlighting and just escape HTML
+  if (code.length > MAX_HIGHLIGHT_LENGTH) {
+    return escapeHtml(code);
+  }
+
+  try {
+    // Get grammar, fallback to markup (which Prism always has) then plain text
+    let grammar = Prism.languages[language];
+    if (!grammar) {
+      // Try some common aliases
+      const aliases: Record<string, string> = {
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
+        'rb': 'ruby',
+        'sh': 'bash',
+        'yml': 'yaml',
+        'dockerfile': 'docker',
+        'md': 'markdown',
+        'ps1': 'powershell',
+        'groovy': 'java',
+      };
+      const aliasedLang = aliases[language];
+      if (aliasedLang && Prism.languages[aliasedLang]) {
+        grammar = Prism.languages[aliasedLang];
+      }
+    }
+    
+    // If still no grammar, use text (no highlighting, just escape)
+    if (!grammar) {
+      return escapeHtml(code);
+    }
+
+    return Prism.highlight(code, grammar, language);
+  } catch (error) {
+    console.warn(`Syntax highlighting failed for ${language}:`, error);
+    // Fallback: escape HTML and return plain text
+    return escapeHtml(code);
+  }
+}
+
+/**
+ * Escape HTML special characters to prevent XSS and rendering issues
+ */
+export function escapeHtml(text: string): string {
+  if (!text) return '';
   
-  let result = '<div class="code-container">';
-  result += '<table class="code-table">';
-  
-  lines.forEach((line, index) => {
-    const lineNum = startLine + index;
-    const lineContent = line || ' ';
-    result += `<tr>`;
-    result += `<td class="line-number">${lineNum}</td>`;
-    result += `<td class="line-content"><pre>${lineContent}</pre></td>`;
-    result += `</tr>`;
-  });
-  
-  result += '</table>';
-  result += '</div>';
-  
-  return result;
+  const div = document.createElement('div');
+  const textNode = document.createTextNode(text);
+  div.appendChild(textNode);
+  return div.innerHTML;
 }
 
 /**
@@ -201,65 +211,6 @@ export function generateHighlightStyles(): string {
     
     .token.entity {
       cursor: help;
-    }
-    
-    /* TypeScript/JavaScript specific */
-    .token-parameter {
-      color: #ffa657;
-    }
-    
-    .token.interpolation {
-      color: #79c0ff;
-    }
-    
-    .token.interpolation-punctuation {
-      color: #79c0ff;
-    }
-    
-    /* JSX/TSX specific */
-    .token.script-punctuation {
-      color: #ff7b72;
-    }
-    
-    .token.spread {
-      color: #ff7b72;
-    }
-    
-    /* Special highlighting for different languages */
-    .language-python .token.keyword {
-      color: #ff7b72;
-    }
-    
-    .language-python .token.builtin {
-      color: #79c0ff;
-    }
-    
-    .language-python .token.decorator {
-      color: #ffa657;
-    }
-    
-    .language-rust .token.keyword {
-      color: #ff7b72;
-    }
-    
-    .language-rust .token.macro {
-      color: #d2a8ff;
-    }
-    
-    .language-go .token.keyword {
-      color: #ff7b72;
-    }
-    
-    .language-go .token.builtin {
-      color: #79c0ff;
-    }
-    
-    .language-java .token.keyword {
-      color: #ff7b72;
-    }
-    
-    .language-java .token.annotation {
-      color: #ffa657;
     }
   `;
 }
