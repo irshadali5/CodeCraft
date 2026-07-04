@@ -3,11 +3,11 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+  "scripts": {    
+  "dev": "bun --bun vite",
+  "build": "bun --bun tsc -b && bun --bun vite build",
+  "lint": "bun --bun eslint .",
+  "preview": "bun --bun vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
